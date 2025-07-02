@@ -3,27 +3,57 @@
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
 #include <WiFi.h>
+#include <BluetoothSerial.h>
 
 const char WIFI_SSID[] = "HUAWEI Y9 Prime 2019";
 const char WIFI_PASSWORD[] = "Samuel_Cruz";
+unsigned long startTime;
+unsigned long lastChange = 0;
+unsigned long setTime;
 
 Adafruit_MPU6050 mpu;
 Adafruit_AS5600 encoder;
+BluetoothSerial SerialBT;
+WiFiClient wifiClient;
 
 // ESP32 Settings
 #define  FREQUENCY_PWM     100 // frecuencia del pwm
-#define  RESOLUTION_PWM    12  // bits del pwm
-#define  CH_PWM_A       0
-#define  CH_PWM_B       1
-#define  AIN1      27 
-#define  AIN2      26   
-#define  ENABLEA      33
-#define  BIN1      13
-#define  BIN2      14
-#define  ENABLEB      32
-#define  DIR_PIN     23
+#define  RESOLUTION_PWM    8  // bits del pwm
+#define  CH_PWM_AIN1       0 // canales de pwm bidireccionales
+#define  CH_PWM_AIN2       1
+#define  AIN1      26
+#define  AIN2      25
 
-void setup_wifi() {
+// Bluethooth Constants
+String S;
+char buffer[1];
+
+// factor de conversion de bits a voltios:  2^ #bits -1 / voltios
+float  voltsToPwm =   (pow(2, RESOLUTION_PWM) - 1) / 5; 
+
+void configPins(void){
+  pinMode(AIN1,OUTPUT);
+  pinMode(AIN2,OUTPUT);
+  ledcSetup(CH_PWM_AIN1, FREQUENCY_PWM, RESOLUTION_PWM);
+  ledcSetup(CH_PWM_AIN2, FREQUENCY_PWM, RESOLUTION_PWM);
+  ledcAttachPin(AIN1,CH_PWM_AIN1);
+  ledcAttachPin(AIN2,CH_PWM_AIN2);
+}
+
+String GetLine(void){   
+  String S = "" ;
+  if(SerialBT.available()){    
+    char c = SerialBT.read(); 
+    while ( c != '\n'){             //Hasta que el caracter sea intro    
+      S = S + c;
+      delay(25);
+      c = SerialBT.read();
+    }
+  }
+  return( S + '\n') ;
+}
+
+void setup_WiFi() {
   delay(10);
   Serial.println();
   Serial.print("Conectando a: ");
@@ -39,23 +69,6 @@ void setup_wifi() {
 
   Serial.println("");
   Serial.println("Conectado al WiFi");
-  Serial.println("Dirección IP: ");
-  Serial.println(WiFi.localIP());
-}
-
-// factor de conversion de bits a voltios:  2^ #bits -1 / voltios
-float  voltsToPwm =   (pow(2, RESOLUTION_PWM) - 1) / 9; 
-
-void configPins(void){
-    pinMode(DIR_PIN,OUTPUT);
-    pinMode(AIN1,OUTPUT);
-    pinMode(AIN2,OUTPUT);
-    pinMode(BIN1,OUTPUT);
-    pinMode(BIN2,OUTPUT);
-    ledcSetup(CH_PWM_A,  FREQUENCY_PWM, RESOLUTION_PWM);
-    ledcAttachPin(ENABLEA, CH_PWM_A);
-    ledcSetup(CH_PWM_B,  FREQUENCY_PWM, RESOLUTION_PWM);
-    ledcAttachPin(ENABLEB, CH_PWM_B);
 }
 
 void configMPU(void){
@@ -133,10 +146,10 @@ void configMPU(void){
 void configEncoder(void){
   Wire.begin();
   if (!encoder.begin()) {
-    Serial.println("AS5600 not detected. Check connections.");
+    Serial.println("AS5600 no detectado. Revisa Conexión.");
     while (1);
   }
-  Serial.println("AS5600 initialized.");
+  Serial.println("AS5600 inicializada.");
   encoder.enableWatchdog(false);
   // Normal (high) power mode
   encoder.setPowerMode(AS5600_POWER_MODE_NOM);
@@ -145,10 +158,6 @@ void configEncoder(void){
 
   // analog output
   encoder.setOutputStage(AS5600_OUTPUT_STAGE_ANALOG_FULL);
-
-  // OR can do pwm!
-  // as5600.setOutputStage(AS5600_OUTPUT_STAGE_DIGITAL_PWM);
-  // as5600.setPWMFreq(AS5600_PWM_FREQ_920HZ);
 
   // setup filters
   encoder.setSlowFilter(AS5600_SLOW_FILTER_16X);
@@ -159,7 +168,7 @@ void configEncoder(void){
   encoder.setMPosition(4095);
   encoder.setMaxAngle(4095);
 
-  Serial.println("Waiting for magnet detection...");
+  Serial.println("Esperando mediciones...");
 }
 
 void voltsToMotor(float volts){
@@ -168,25 +177,18 @@ void voltsToMotor(float volts){
     
     uint16_t pwm = abs(volts) * voltsToPwm;
 
+
     if (volts < 0){
         // if var volts is negative use CH_PWM_AIN2 to output a pwm signal
         // proportional to the input voltage
-        digitalWrite(AIN1, 0);
-        digitalWrite(AIN2, HIGH);
-        ledcWrite(CH_PWM_A, pwm);
-        digitalWrite(BIN1, 0);
-        digitalWrite(BIN2, HIGH);
-        ledcWrite(CH_PWM_B, pwm);
+        ledcWrite(CH_PWM_AIN1, 0);
+        ledcWrite(CH_PWM_AIN2, pwm);
     }
     else{
         // if var volts is negative use CH_PWM_AIN1 to output a pwm signal
         // proportional to the input voltage
-        digitalWrite(AIN1, HIGH);
-        digitalWrite(AIN2, 0);
-        ledcWrite(CH_PWM_A, pwm);
-        digitalWrite(BIN1, HIGH);
-        digitalWrite(BIN2, 0);
-        ledcWrite(CH_PWM_B, pwm);
+        ledcWrite(CH_PWM_AIN1, pwm);
+        ledcWrite(CH_PWM_AIN2, 0);
     }
 }
 
