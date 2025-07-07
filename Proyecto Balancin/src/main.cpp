@@ -105,6 +105,8 @@ void loop() {
   y = radians(y);
   //Serial.print(" Velocity: ");
   //Serial.print(g.gyro.x);
+
+  //Implementación PID
   if(strcmp(buffer,"g") == 0){
     unsigned long t = now - setTime;
     calcularPID();
@@ -141,6 +143,15 @@ void loop() {
     unsigned long t = now - startTime;
     Serial.print("t: "); Serial.print(t);
     Serial.print(" ms, ángulo: "); Serial.println(y);
+  }*/
+
+  //Caracterización de la fricción
+  /*
+  unsigned long t = now - lastChange;
+  if (t >= 10) {
+    Serial.print("Angle: "); Serial.print(y);
+    Serial.print("Tiempo: "); Serial.println(t);
+    lastChange = now;
   }*/
   
 
