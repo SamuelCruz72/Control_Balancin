@@ -18,7 +18,7 @@
     
 # Laboratorio Robótica
 En este repositorio se incluyen todos los archivos fuente y la documentación relacionada con el desarrollo de cada uno de los laboratorios de la asignatura Robótica 2025- I de la Universidad Nacional de Colombia:
-1. [Controlador PID](https://github.com/SamuelCruz72/Laboratorio_Robotica/blob/main/Lab_1.md)
-2. [Controlador $H_infty$](https://github.com/SamuelCruz72/Laboratorio_Robotica/blob/main/Lab_2.md)
-3. [Controlador MRAC](https://github.com/SamuelCruz72/Laboratorio_Robotica/blob/main/Lab_3.md)
-4. [Controlador SMC](https://github.com/SamuelCruz72/Laboratorio_Robotica/blob/main/Lab_4.md)
+1. [Controlador PID](https://github.com/SamuelCruz72/Control_Balancin/blob/main/Proyecto%20Balancin/src/definitions.h)
+2. [Controlador H infinito](https://github.com/SamuelCruz72/Control_Balancin/blob/main/Proyecto%20Balancin/src/definitions.h)
+3. [Controlador MRAC](https://github.com/SamuelCruz72/Control_Balancin/blob/main/Proyecto%20Balancin/src/definitions.h)
+4. [Controlador SMC](https://github.com/SamuelCruz72/Control_Balancin/blob/main/Proyecto%20Balancin/src/definitions.h)
