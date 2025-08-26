@@ -1,179 +1,246 @@
-#include <Arduino.h>
 #include "definitions.h"
-#include <math.h>
-
-// Variables Motor
-const float deadZone = 0.36; // valor estimado de la zona muerta
-const float h = 0.01;  // tiempo de muestreo en segundos
-
-// Variables PID
-float Kp = 0.47;  // Ganancia proporcional
-float Ki = 1;   // Ganancia integral
-float Kd = 0;   // Ganancia derivativa
-float umin = -3;
-float umax = 3;
-
-float r = radians(90); // referencia
-float e; // error
-float y; // entrada
-float y_a; // entrada anterior
-float u; // salida
-float usat; // salida al motor
-float p; // acción proporcional
-float i = 0.0; // acción integral
-float d; // acción derivativa
-int idx;
-
-void calcularPID(void) {
-  //calculamos el error       
-  e = r - y; 
- 
-  p = Kp*e;
- 
-  d = Kd*(y-y_a)/h;
-
-  // Anti wind-up clamping
-  float u_bc = p + d;
-  float i_bc = i + e * h;
-  float u_e = u_bc + Ki * i_bc;
-
-  // Evaluamos si el controlador está saturado
-  if (u_e > umax && e > 0) {
-    // No integramos si el error aumenta la saturación
-  } else if (u_e < umin && e < 0) {
-    // No integramos si el error aumenta la saturación negativa
-  } else {
-    i = i_bc;  // Solo integramos si no hay riesgo de windup
-  }
-
-  // Acción de control completa
-  u = u_bc + Ki * i;
- 
-  // realizamos la compensacion de zona muerta del motor u = u + deadzone * sign(u), si |u|>0
-  u = compDeadZone(u, deadZone);
-
-  // saturamos la señal de control para los limites energéticos disponibles entre umin=-5V y umax=5V
-  usat = constrain(u, umin, umax);
-
-  //enviamos la señal de control saturada al motor 
-  y_a = y; // update output state
-}
-
+#include "sensors.h"
+#include "com.h"
+#include "PID.h"
+#include "SMC.h"
+#include "MRAC.h"
+#include "Hinf.h"
 
 void setup() {
-  Serial.begin(115200);
-  SerialBT.begin("ESP32_Cris_V");
-  Serial.println("Dispositivo iniciado, puedes conectarlo a Bluetooth");
-  //setup_WiFi();
-  configPins();
-  configEncoder();
-  //configMPU();
-  startTime = millis();
-
-  /*Serial.println("Inicio de calibración");
-  delay(1000);
-  
-  for (int i = 0; i < 5000; i++) {
-    uint16_t angle = encoder.getAngle();
-    y = fmod(((angle - 3827) * 360.0 / 4096.0 + 360.0), 360.0);
-    unsigned long t = millis() - startTime;
-    Serial.print("Angle: ");
-    Serial.print(y);
-    Serial.print(" Tiempo: ");
-    Serial.println(t);
-  }
-  Serial.println("Captura completada.");*/
+    Serial.begin(115200);
+    SerialBT.begin("ESP32_Cris_V");
+    Serial.println("Dispositivo iniciado, puedes conectarlo a Bluetooth");
+    
+    configPins();
+    configEncoder();
+    configMPU();
+    
+    // Inicializar controladores
+    initMRAC();
+    initHinf();  
+    
+    startTime = millis();
 }
 
 void loop() {
-  //sensors_event_t a, g, temp;
-  //mpu.getEvent(&a, &g, &temp);
-  uint16_t angle = encoder.getAngle();
-
-  if(SerialBT.available()){
-    S = GetLine();
-    strcpy(buffer,S.c_str());
-    buffer[strcspn(buffer, "\r\n")] = 0;
-    setTime = millis();
-  }
-
-  unsigned long now = millis();
-
-  y = fmod((angle-1197)*360.0/4096.0, 360.0);
-  if (y > 180.0) y -= 360.0;
-  if (y < -180.0) y += 360.0;
-  y = radians(y);
-  //Serial.print(" Velocity: ");
-  //Serial.print(g.gyro.x);
-
-  //Implementación PID
-  if(strcmp(buffer,"g") == 0){
-    unsigned long t = now - setTime;
-    calcularPID();
-    voltsToMotor(-usat);
-    if(now - lastChange >= 50 && t <= 20000){
-      Serial.print("t: "); Serial.print(t);
-      Serial.print(" Angulo: "); Serial.print(y);
-      Serial.print(" Error: "); Serial.print(e);
-      Serial.print(" Señal: "); Serial.println(usat);
-      lastChange = now;
-    }
-  }
-  else{
-    i = 0.0;
-    voltsToMotor(0);
-    if(now - lastChange >= 100){
-      Serial.print("Raw: "); Serial.print(angle);
-      Serial.print(" Angulo: "); Serial.println(y);
-      lastChange = now;
-    }
-  }
-
-  //Validación de modelo
-  /*float Vo[] = {1.00, 2.00, 2.5, 2.00, 1.00, 0, 2.00, 0};
-  if (now - lastChange >= 3000 && idx < 8) {
-    voltsToMotor(Vo[idx]);  
-    lastChange = now;
-    idx++;
-  }
-
-  if (idx<8){
+    unsigned long now = millis();
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
     uint16_t angle = encoder.getAngle();
-    float y = fmod(((angle - 3827) * 360.0 / 4096.0 + 360.0), 360.0);
-    unsigned long t = now - startTime;
-    Serial.print("t: "); Serial.print(t);
-    Serial.print(" ms, ángulo: "); Serial.println(y);
-  }*/
+    
+    y = fmod((angle-offset)*360.0/4096.0, 360.0);
+    if (y > 180.0) y -= 360.0;
+    if (y < -180.0) y += 360.0;
+    y = radians(y);
+    v = g.gyro.z;
 
-  //Caracterización de la fricción
-  /*
-  unsigned long t = now - lastChange;
-  if (t >= 10) {
-    Serial.print("Angle: "); Serial.print(y);
-    Serial.print("Tiempo: "); Serial.println(t);
-    lastChange = now;
-  }*/
-  
-
-  //Caracterización del modelo
-  /*float V = 0.0;
-
-  if(strcmp(buffer,"u") == 0){
-    buffer[0] = 'o';
-    buffer[1] = '\0';
-    while(y < 193) {
-      voltsToMotor(V);
-      uint16_t angle = encoder.getAngle();
-      y = fmod(((angle - 3827) * 360.0 / 4096.0 + 360.0), 360.0);
-      V += 0.002;
-      delay(100);
+    if(SerialBT.available()){
+        S = GetLine();
+        strcpy(buffer,S.c_str());
+        buffer[strcspn(buffer, "\r\n")] = 0;
+        setTime = millis();
+        i = 0.0;  // Reset para PID
+        initHinf();  // Reset para H-infinito
     }
-    Serial.print(" Voltaje: ");
-    Serial.println(V);
-  }
-  if(strcmp(buffer,"s") == 0){
-    voltsToMotor(0);
-    uint16_t angle = encoder.getAngle();
-    y = fmod(((angle - 3827) * 360.0 / 4096.0 + 360.0), 360.0);
-  }*/
+
+    unsigned long t = now - setTime; 
+    
+    // =============== IMPLEMENTACIÓN H-INFINITO ===============
+    if(strcmp(buffer,"h") == 0){  
+        r = radians(90);  // Referencia de 90 grados
+        calcularHinf();
+        voltsToMotor(usat);
+        
+        if(now - lastChange >= 100 && t <= 20000){
+            Serial.print("H∞ - t: "); Serial.print(t);
+            Serial.print(" Ang: "); Serial.print(degrees(y), 2);
+            Serial.print(" Ref: "); Serial.print(degrees(r), 2);
+            Serial.print(" Err: "); Serial.print(degrees(r-y), 4);
+            Serial.print(" U: "); Serial.print(usat, 3);
+            Serial.print(" Estados: [");
+            for (int i = 0; i < HINF_ORDER; i++) {
+                  Serial.print(x_hinf[i], 4);  
+                  if (i < HINF_ORDER - 1) Serial.print(",");
+              }
+              Serial.println("]");
+            lastChange = now;
+        }
+    }
+    
+    // =============== IMPLEMENTACIÓN MRAC ===============
+    if(strcmp(buffer,"M") == 0){
+        r = radians(90);
+        calcularMRAC();
+        voltsToMotor(usat);
+        
+        if(now - lastChange >= 100 && t <= 20000){
+            Serial.print("MRAC - t: "); Serial.print(t);
+            Serial.print(" Ang: "); Serial.print(degrees(y), 2);
+            Serial.print(" Ref: "); Serial.print(degrees(r), 2);
+            Serial.print(" Err: "); Serial.print(degrees(e1_raw), 4);
+            Serial.print(" U: "); Serial.print(usat, 3);
+            Serial.print(" Kx:["); Serial.print(Kx[0], 3); 
+            Serial.print(","); Serial.print(Kx[1], 3);
+            Serial.print("] Kr:"); Serial.print(Kr, 3);
+            Serial.print(" Ku:"); Serial.println(Ku, 4);
+            lastChange = now;
+        }
+    }
+    
+    // =============== IMPLEMENTACION PID ===============
+    if(strcmp(buffer,"p") == 0){
+        r = radians(90);
+        calcularPID();
+        voltsToMotor(usat);
+        if(now - lastChange2 >= 5000){
+            if(idx_ref == 1){
+                idx_ref = 2;
+            }
+            else{
+                idx_ref = 1;
+            }
+            lastChange2 = now;
+        }
+        if(now - lastChange >= 100 && t <= 20000){
+            Serial.print("PID - t: "); Serial.print(t);
+            Serial.print(" Angulo: "); Serial.print(y);
+            Serial.print(" Referencia: "); Serial.print(r);
+            Serial.print(" Error: "); Serial.print(e);
+            Serial.print(" Señal: "); Serial.println(usat);
+            lastChange = now;
+        }
+    }
+
+    // =============== IMPLEMENTACION SMC ===============
+    if(strcmp(buffer,"s") == 0){
+        r = radians(90);
+        calcularSMC();
+        voltsToMotor(usat);
+        if(now - lastChange >= 100 && t <= 20000){
+            Serial.print("SMC - t: "); Serial.print(t);
+            Serial.print(" Angulo: "); Serial.print(y);
+            Serial.print(" Error: "); Serial.print(e);
+            Serial.print(" Velocidad: "); Serial.print(v);
+            Serial.print(" Referencia: "); Serial.print(r);
+            Serial.print(" Señal: "); Serial.println(usat);
+            lastChange = now;
+        }
+    }
+    
+    // =============== COMPARACIÓN DE CONTROLADORES ===============
+    if(strcmp(buffer,"comp") == 0){  // Modo comparación
+        r = radians(90);
+        
+        // Alternar entre controladores cada 5 segundos
+        if(now - lastChange2 >= 5000){
+            if(idx_ref == 1){
+                idx_ref = 2;  // H-infinito
+            }
+            else if(idx_ref == 2){
+                idx_ref = 3;  // MRAC
+            }
+            else if(idx_ref == 3){
+                idx_ref = 4;  // PID
+            }
+            else{
+                idx_ref = 1;  // SMC
+            }
+            lastChange2 = now;
+            
+            // Reiniciar controladores al cambiar
+            initHinf();
+            i = 0.0;  // Reset PID
+        }
+        
+        // Aplicar controlador correspondiente
+        if(idx_ref == 1){
+            calcularSMC();
+            Serial.print("SMC - ");
+        }
+        else if(idx_ref == 2){
+            calcularHinf();
+            Serial.print("H∞ - ");
+        }
+        else if(idx_ref == 3){
+            calcularMRAC();
+            Serial.print("MRAC - ");
+        }
+        else{
+            calcularPID();
+            Serial.print("PID - ");
+        }
+        
+        voltsToMotor(usat);
+        
+        if(now - lastChange >= 100 && t <= 60000){  // 60 segundos para ver todos
+            Serial.print("t: "); Serial.print(t);
+            Serial.print(" Ang: "); Serial.print(degrees(y), 2);
+            Serial.print(" Ref: "); Serial.print(degrees(r), 2);
+            Serial.print(" U: "); Serial.println(usat, 3);
+            lastChange = now;
+        }
+    }
+    
+    // =============== CORRECCIÓN DE ANGULOS =================
+    if(strcmp(buffer,"a") == 0){
+        voltsToMotor(0);
+        if(now - lastChange >= 100){
+            Serial.print("Raw: "); Serial.print(angle);
+            Serial.print(" Angulo: "); Serial.print(degrees(y));
+            Serial.print(" Velocidad: "); Serial.println(g.gyro.z);
+            lastChange = now;
+        }
+    }
+
+     // =============== VALIDACIÓN DE MODELO ===================
+    if(strcmp(buffer,"m") == 0){
+      float Vo[] = {1.00, 1.50, 2.00, 1.50, 1.00, 0, 1.50, 0};
+      if (now - lastChange >= 3000 && idx < 8) {
+        voltsToMotor(Vo[idx]);  
+        lastChange = now;
+        idx++;
+      }
+
+      if (idx<9){
+        Serial.print("t: "); Serial.print(t);
+        Serial.print(" ms, ángulo: "); Serial.println(y);
+      }
+    }
+
+    // ============== CARACTERIZACIÓN DE LA FRICCIÓN ================
+    if(strcmp(buffer,"f") == 0){
+      if (now - lastChange >= 100) {
+        Serial.print("Angle: "); Serial.print(y);
+        Serial.print(" Tiempo: "); Serial.println(t);
+        lastChange = now;
+      }
+    }
+
+    // ============== CARACTERIZACIÓN DEL MOTOR ================
+    float V = 0.0;
+
+    if(strcmp(buffer,"u") == 0){
+      buffer[0] = 'o';
+      buffer[1] = '\0';
+
+      while(y < 90) {
+        uint16_t angle = encoder.getAngle();
+        y = fmod((angle-offset)*360.0/4096.0, 360.0);
+        if (y > 180.0) y -= 360.0;
+        if (y < -180.0) y += 360.0;
+        voltsToMotor(V);
+        V += 0.01;
+        if (V > 5.0){
+          break;
+        }
+        delay(100);
+      }
+      Serial.print(" Voltaje: ");
+      Serial.println(V);
+    }
+
+    // ============== DETENER MOTOR ================
+    if(strcmp(buffer,"x") == 0){
+        voltsToMotor(0);
+    }
 }
